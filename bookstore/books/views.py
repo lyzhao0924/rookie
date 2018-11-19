@@ -4,6 +4,7 @@ from books.enums import *
 from django.core.urlresolvers import reverse
 from django.core.paginator import Paginator
 from django_redis import get_redis_connection
+from django.views.decorators.cache import cache_page
 # Create your views here.
 import logging
 logger = logging.getLogger('django.request')
