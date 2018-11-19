@@ -12,6 +12,10 @@ from django.conf import settings
 import os
 from django_redis import get_redis_connection
 from books.models import Books
+from order.models import OrderInfo ,OrderBooks
+from django.core.paginator import Paginator
+
+
 # Create your views here.
 def register(request):
     '''显示用户注册页面'''
@@ -171,4 +175,88 @@ def address(request):
         return redirect(reverse('user:address'))
 
 
+@login_required
+def order(request,page):
+    #用户中心＿订单页
+    #cha查询用户的订单信息
+    passport_id = request.session.get('passport_id')
 
+    #获取订单信息
+    order_li = OrderInfo.objects.filter(passport_id=passport_id)
+
+    #遍历获取订单的商品信息
+    # order -->OderInfo实例对象
+    for order in order_li:
+        #根据订单ｉｄ查询订单商品信息
+        order_id = order.order.id
+        order_books_li = OrderBooks.objects.filter(order_id = order_id)
+
+        #计算商品的小计
+         # order_books -->OrderBooks实例对象
+        for order_books in order_books_li:
+            count = order_books.count
+            price = order_books.price
+            amount = count*price
+            #保存订单每一个商品的小计＇
+            order_books.amount = amount
+
+        #gei 给ｏｒｄｅｒ对象动态增加一个属性ｏｒｄｅｒ＿ｂｏｏｋｓ＿ｌｉ，保存订单中商品的信息
+    
+    paginator = Paginator(order_li,3)
+    num_pages = paginator.num_pages
+
+    if not page:
+        page = 1
+    if  page == '' or int(page)>num_pages:
+        page = 1
+    else:
+        page = int(page)
+
+    order_li = paginator.page(page)
+
+    if num_pages <5:
+        pages = range(1,num_pages+1)
+    elif page <=3:
+        pages = range(1,6)
+    elif num_pages - page <=2:
+        pages = range(num_pages-4,num_pages+1)
+    else:
+        pages = range(page-2,page+3)
+
+    context = {
+        'order_li':order_li,
+        'pages':pages,
+        }
+
+    return render(request, '/users/user_center_order.html','context')
+
+
+        # 将app_private_key.pem和app_public_key.pem拷贝到order文件夹下。
+    app_private_key_path = os.path.join(settings.BASE_DIR, 'order/app_private_key.pem')
+    alipay_public_key_path = os.path.join(settings.BASE_DIR, 'order/app_public_key.pem')
+
+    app_private_key_string = open(app_private_key_path).read()
+    alipay_public_key_string = open(alipay_public_key_path).read()
+
+    # 和支付宝进行交互
+    alipay = AliPay(
+        appid="2016091500515408", # 应用id
+        app_notify_url=None,  # 默认回调url
+        app_private_key_string=app_private_key_string,
+        alipay_public_key_string=alipay_public_key_string,  # 支付宝的公钥，验证支付宝回传消息使用，不是你自己的公钥,
+        sign_type = "RSA2",  # RSA 或者 RSA2
+        debug = True,  # 默认False
+    )
+
+    # 电脑网站支付，需要跳转到https://openapi.alipaydev.com/gateway.do? + order_string
+    total_pay = order.total_price + order.transit_price # decimal
+    order_string = alipay.api_alipay_trade_page_pay(
+        out_trade_no=order_id, # 订单id
+        total_amount=str(total_pay), # Json传递，需要将浮点转换为字符串
+        subject='尚硅谷书城%s' % order_id,
+        return_url=None,
+        notify_url=None  # 可选, 不填则使用默认notify url
+    )
+    # 返回应答
+    pay_url = settings.ALIPAY_URL + '?' + order_string
+    return JsonResponse({'res': 3, 'pay_url': pay_url, 'message': 'OK'})
